@@ -30,5 +30,6 @@ app.UseHttpsRedirection();
 
 app.AddTrackEndpoints();
 app.AddArtistEndpoints();
+app.AddPlaylistEndpoints();
 
 app.Run();

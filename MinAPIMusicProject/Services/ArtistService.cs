@@ -4,6 +4,7 @@ using MinAPIMusicProject.Data;
 using MinAPIMusicProject.DTOs;
 using MinAPIMusicProject.Interfaces;
 using MinAPIMusicProject.Models;
+using System.Transactions;
 
 namespace MinAPIMusicProject.Services;
 
@@ -49,18 +50,29 @@ public class ArtistService : IArtistService
     public async Task<TrackDTO> AddTrack(int artistId, AddTrackDTO track, CancellationToken cancellationToken = default)
     {
         var trackToAdd = _mapper.Map<Track>(track);
-        var artist = await _context.Artists.FindAsync(new object[]{artistId}, cancellationToken: cancellationToken);
-
-        if (artist == null)
+        using (var transaction = CreateReadCommitedTransaction())
         {
-            throw new ArgumentNullException(nameof(artist) + " is null");
+            var artist = _context.Artists.Find(new object[] { artistId });
+
+            if (artist == null)
+            {
+                throw new ArgumentNullException(nameof(artist) + " is null");
+            }
+
+            trackToAdd.Artist = artist;
+
+            trackToAdd.Genre = _context.Genres.Find(track.GenreId);
+            trackToAdd.CreatedAt = track.CreatedAt ?? DateTime.UtcNow;
+
+            if (trackToAdd.Genre == null)
+            {
+                throw new ArgumentNullException("genre is null");
+            }
+
+            _context.Add(trackToAdd);
+            _context.SaveChanges();
+            transaction.Complete();
         }
-
-        trackToAdd.Artist = artist;
-
-        trackToAdd.Genre = _context.Genres.First();
-        _context.Add(trackToAdd);
-        await _context.SaveChangesAsync(cancellationToken);
 
         return _mapper.Map<TrackDTO>(trackToAdd);
     }
@@ -72,5 +84,16 @@ public class ArtistService : IArtistService
             .Take(size)
             .Select(x => new ArtistDTO() { Name = x.Name })
             .ToListAsync(cancellationToken);
+    }
+
+    private TransactionScope CreateReadCommitedTransaction()
+    {
+        var options = new TransactionOptions()
+        {
+            IsolationLevel = IsolationLevel.ReadCommitted,
+            Timeout = new TimeSpan(0, 0, 15, 0)
+        };
+
+        return new TransactionScope(TransactionScopeOption.Required, options);
     }
 }
